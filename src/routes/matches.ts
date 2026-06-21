@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import prisma from "../lib/prisma.js";
+import * as matchService from "../services/match.service.js";
+import * as carService from "../services/car.service.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { AppError } from "../middleware/error.js";
 
@@ -31,46 +32,10 @@ const recommendationsSchema = z.object({
   }),
 });
 
-function formatMatch(row: any) {
-  return {
-    id: row.id,
-    car: {
-      id: row.car.id,
-      name: row.car.name,
-      year: row.car.year,
-      price: row.car.price,
-      category: row.car.category,
-      specs: {
-        engine: row.car.engine,
-        power: row.car.power,
-        consumption: row.car.consumption,
-        weight: row.car.weight,
-      },
-      costs: {
-        ipva: row.car.ipva,
-        insurance: row.car.insurance,
-        maintenance: row.car.maintenance,
-      },
-      features: JSON.parse(row.car.features),
-      images: {
-        main: row.car.mainImage,
-        thumbnails: JSON.parse(row.car.thumbnailImages),
-      },
-    },
-    savedAt: row.savedAt,
-    matchPercentage: row.matchPercentage,
-  };
-}
-
 router.get("/", requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const matches = await prisma.savedMatch.findMany({
-      where: { userId: req.userId! },
-      include: { car: true },
-      orderBy: { savedAt: "desc" },
-    });
-
-    res.json(matches.map(formatMatch));
+    const matches = await matchService.getUserMatches(req.userId!);
+    res.json(matches);
   } catch (err) {
     next(err);
   }
@@ -81,7 +46,7 @@ router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next)
     const userProfile = recommendationsSchema.parse(req.body);
     const userId = req.userId!;
 
-    const cars = await prisma.car.findMany();
+    const cars = await carService.getAllCarsRaw();
 
     const formattedCars = cars.map(car => ({
       id: car.id,
@@ -113,34 +78,23 @@ router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next)
     }
 
     const aiResults = await response.json();
-    
-    const enrichedMatches = [];
-    
-    // Salvar automaticamente apenas o melhor match no banco de dados para o usuário
+
+    const enrichedMatches: Awaited<ReturnType<typeof matchService.upsertMatch>>[] = [];
+
     if (aiResults.matches && aiResults.matches.length > 0) {
-      const topMatches = aiResults.matches.slice(0, 1); // Salva apenas o melhor resultado (maior compatibilidade)
-      
+      const topMatches = aiResults.matches.slice(0, 1);
+
       for (const aiMatch of topMatches) {
         try {
-          const matchRecord = await prisma.savedMatch.upsert({
-            where: {
-              userId_carId: {
-                userId: userId,
-                carId: aiMatch.id
-              }
-            },
-            update: {
-              matchPercentage: Math.max(0, Math.round(aiMatch.match_score * 100))
-            },
-            create: {
-              userId: userId,
-              carId: aiMatch.id,
-              matchPercentage: Math.max(0, Math.round(aiMatch.match_score * 100))
-            },
-            include: { car: true }
-          });
-          
-          enrichedMatches.push(formatMatch(matchRecord));
+          const matchRecord = await matchService.upsertMatch(
+            userId,
+            aiMatch.id,
+            Math.max(0, Math.round(aiMatch.match_score * 100))
+          );
+
+          if (matchRecord) {
+            enrichedMatches.push(matchRecord);
+          }
         } catch (saveErr) {
           console.error(`Erro ao salvar match automático para o carro ${aiMatch.id}:`, saveErr);
         }
@@ -149,7 +103,7 @@ router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next)
 
     res.json({
       status: "success",
-      matches: enrichedMatches
+      matches: enrichedMatches,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -164,37 +118,29 @@ router.post("/", requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const data = createMatchSchema.parse(req.body);
 
-    const car = await prisma.car.findUnique({
-      where: { id: data.carId },
-    });
+    const car = await carService.getCarById(data.carId);
 
     if (!car) {
       throw new AppError(404, "Carro não encontrado");
     }
 
-    const existing = await prisma.savedMatch.findUnique({
-      where: {
-        userId_carId: {
-          userId: req.userId!,
-          carId: data.carId,
-        },
-      },
-    });
+    const existing = await matchService.getMatchByUserAndCar(req.userId!, data.carId);
 
     if (existing) {
       throw new AppError(409, "Match já salvo");
     }
 
-    const match = await prisma.savedMatch.create({
-      data: {
-        userId: req.userId!,
-        carId: data.carId,
-        matchPercentage: data.matchPercentage,
-      },
-      include: { car: true },
-    });
+    const match = await matchService.createMatch(
+      req.userId!,
+      data.carId,
+      data.matchPercentage
+    );
 
-    res.status(201).json(formatMatch(match));
+    if (!match) {
+      throw new AppError(500, "Erro ao salvar match");
+    }
+
+    res.status(201).json(match);
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.issues[0].message });
@@ -206,21 +152,20 @@ router.post("/", requireAuth, async (req: AuthRequest, res, next) => {
 
 router.delete("/:id", requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const match = await prisma.savedMatch.findUnique({
-      where: { id: String(req.params.id) },
-    });
+    const matchId = String(req.params.id);
+
+    const matches = await matchService.getUserMatches(req.userId!);
+    const match = matches.find(m => m.id === matchId);
 
     if (!match) {
       throw new AppError(404, "Match não encontrado");
     }
 
-    if (match.userId !== req.userId) {
-      throw new AppError(403, "Não autorizado");
-    }
+    const deleted = await matchService.deleteMatch(matchId);
 
-    await prisma.savedMatch.delete({
-      where: { id: String(req.params.id) },
-    });
+    if (!deleted) {
+      throw new AppError(500, "Erro ao deletar match");
+    }
 
     res.status(204).send();
   } catch (err) {

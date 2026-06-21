@@ -1,14 +1,10 @@
 import { Router } from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { z } from "zod";
-import prisma from "../lib/prisma.js";
+import supabaseAdmin, { supabaseAnon } from "../lib/supabase.js";
 import { AppError } from "../middleware/error.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
-
-const JWT_SECRET = process.env.JWT_SECRET || "automatch-dev-secret-change-in-production";
 
 const registerSchema = z.object({
   firstName: z.string().min(2, "Nome deve ter no mínimo 2 caracteres"),
@@ -33,51 +29,61 @@ const updateAvatarSchema = z.object({
   avatarUrl: z.string().min(1, "Imagem inválida"),
 });
 
+function formatUser(user: { id: string; email?: string }, profile: { first_name: string; surname: string; role: string; avatar_url: string }) {
+  return {
+    id: user.id,
+    firstName: profile.first_name,
+    surname: profile.surname,
+    email: user.email || "",
+    role: profile.role,
+    avatarUrl: profile.avatar_url,
+  };
+}
+
 router.post("/register", async (req, res, next) => {
   try {
     const data = registerSchema.parse(req.body);
 
-    const existing = await prisma.user.findUnique({
-      where: { email: data.email },
-    });
-
-    if (existing) {
-      throw new AppError(409, "Email já cadastrado");
-    }
-
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-
-    const user = await prisma.user.create({
-      data: {
+    const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email: data.email,
+      password: data.password,
+      email_confirm: true,
+      user_metadata: {
         firstName: data.firstName,
         surname: data.surname,
-        email: data.email,
-        password: hashedPassword,
-      },
-      select: {
-        id: true,
-        firstName: true,
-        surname: true,
-        email: true,
-        role: true,
-        avatarUrl: true,
       },
     });
 
-    const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: "7d",
+    if (createError) {
+      if (createError.message.includes("already registered") || createError.message.includes("already exists")) {
+        throw new AppError(409, "Email já cadastrado");
+      }
+      throw new AppError(400, createError.message);
+    }
+
+    if (!authData.user) {
+      throw new AppError(500, "Erro ao criar usuário");
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("id", authData.user.id)
+      .single();
+
+    const userData = formatUser(
+      authData.user,
+      profile || { first_name: data.firstName, surname: data.surname || "", role: "USER", avatar_url: "" }
+    );
+
+    const { data: sessionData } = await supabaseAnon.auth.signInWithPassword({
+      email: data.email,
+      password: data.password,
     });
 
     res.status(201).json({
-      token,
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        surname: user.surname,
-        email: user.email,
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-      },
+      token: sessionData?.session?.access_token || "",
+      user: userData,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -92,43 +98,31 @@ router.post("/login", async (req, res, next) => {
   try {
     const data = loginSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({
-      where: { email: data.email },
-      select: {
-        id: true,
-        firstName: true,
-        surname: true,
-        email: true,
-        password: true,
-        role: true,
-        avatarUrl: true,
-      },
+    const { data: authData, error: signInError } = await supabaseAnon.auth.signInWithPassword({
+      email: data.email,
+      password: data.password,
     });
 
-    if (!user) {
+    if (signInError || !authData.session) {
       throw new AppError(401, "Email ou senha inválidos");
     }
 
-    const valid = await bcrypt.compare(data.password, user.password);
+    const user = authData.session.user;
 
-    if (!valid) {
-      throw new AppError(401, "Email ou senha inválidos");
-    }
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
 
-    const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    const userData = formatUser(
+      user,
+      profile || { first_name: "", surname: "", role: "USER", avatar_url: "" }
+    );
 
     res.json({
-      token,
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        surname: user.surname,
-        email: user.email,
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-      },
+      token: authData.session.access_token,
+      user: userData,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -147,46 +141,63 @@ router.put("/me", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(401, "Token inválido ou expirado");
     }
 
-    const existing = await prisma.user.findFirst({
-      where: {
-        email: data.email,
-        NOT: { id: req.userId },
-      },
-    });
+    const { data: existingUsers } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("email", data.email)
+      .neq("id", req.userId)
+      .limit(1);
 
-    if (existing) {
+    if (existingUsers && existingUsers.length > 0) {
       throw new AppError(409, "Email já cadastrado");
     }
 
-    const updateData: {
-      firstName: string;
-      surname: string;
-      email: string;
-      password?: string;
-    } = {
-      firstName: data.firstName,
-      surname: data.surname,
-      email: data.email,
-    };
+    const { error: updateError } = await supabaseAdmin
+      .from("profiles")
+      .update({
+        first_name: data.firstName,
+        surname: data.surname,
+      })
+      .eq("id", req.userId);
 
-    if (data.password) {
-      updateData.password = await bcrypt.hash(data.password, 10);
+    if (updateError) {
+      throw new AppError(500, "Erro ao atualizar perfil");
     }
 
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: updateData,
-      select: {
-        id: true,
-        firstName: true,
-        surname: true,
-        email: true,
-        role: true,
-        avatarUrl: true,
-      },
-    });
+    if (data.email) {
+      const { error: emailError } = await supabaseAdmin.auth.admin.updateUserById(
+        req.userId,
+        { email: data.email }
+      );
+      if (emailError) {
+        console.error("[Auth] Error updating email:", emailError);
+      }
+    }
 
-    res.json({ user });
+    if (data.password) {
+      const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(
+        req.userId,
+        { password: data.password }
+      );
+      if (passwordError) {
+        console.error("[Auth] Error updating password:", passwordError);
+      }
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("id", req.userId)
+      .single();
+
+    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(req.userId);
+
+    const userData = formatUser(
+      user || { id: req.userId, email: data.email },
+      profile || { first_name: data.firstName, surname: data.surname || "", role: "USER", avatar_url: "" }
+    );
+
+    res.json({ user: userData });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.issues[0].message });
@@ -204,20 +215,29 @@ router.put("/me/avatar", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(401, "Token inválido ou expirado");
     }
 
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: { avatarUrl: data.avatarUrl },
-      select: {
-        id: true,
-        firstName: true,
-        surname: true,
-        email: true,
-        role: true,
-        avatarUrl: true,
-      },
-    });
+    const { error: updateError } = await supabaseAdmin
+      .from("profiles")
+      .update({ avatar_url: data.avatarUrl })
+      .eq("id", req.userId);
 
-    res.json({ user });
+    if (updateError) {
+      throw new AppError(500, "Erro ao atualizar avatar");
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("id", req.userId)
+      .single();
+
+    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(req.userId);
+
+    const userData = formatUser(
+      user || { id: req.userId },
+      profile || { first_name: "", surname: "", role: "USER", avatar_url: data.avatarUrl }
+    );
+
+    res.json({ user: userData });
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.issues[0].message });

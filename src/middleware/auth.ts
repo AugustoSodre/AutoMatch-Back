@@ -1,14 +1,12 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.JWT_SECRET || "automatch-dev-secret-change-in-production";
+import supabaseAdmin from "../lib/supabase.js";
 
 export interface AuthRequest extends Request {
   userId?: string;
   userRole?: string;
 }
 
-export function requireAuth(
+export async function requireAuth(
   req: AuthRequest,
   res: Response,
   next: NextFunction
@@ -23,21 +21,34 @@ export function requireAuth(
   const token = header.slice(7);
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
-    req.userId = payload.userId;
-    req.userRole = payload.role;
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !user) {
+      res.status(401).json({ error: "Token inválido ou expirado" });
+      return;
+    }
+
+    req.userId = user.id;
+
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    req.userRole = (profile as { role: string } | null)?.role || "USER";
     next();
   } catch {
     res.status(401).json({ error: "Token inválido ou expirado" });
   }
 }
 
-export function requireAdmin(
+export async function requireAdmin(
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ) {
-  requireAuth(req, res, () => {
+  await requireAuth(req, res, () => {
     if (req.userRole !== "ADMIN") {
       res.status(403).json({ error: "Acesso restrito a administradores" });
       return;

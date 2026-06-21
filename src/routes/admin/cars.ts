@@ -1,36 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
-import prisma from "../../lib/prisma.js";
-import { requireAdmin } from "../../middleware/auth.js";
+import * as carService from "../../services/car.service.js";
+import * as matchService from "../../services/match.service.js";
+import { requireAdmin, AuthRequest } from "../../middleware/auth.js";
 import { AppError } from "../../middleware/error.js";
 
 const router = Router();
-
-function formatCar(row: any) {
-  return {
-    id: row.id,
-    name: row.name,
-    year: row.year,
-    price: row.price,
-    category: row.category,
-    specs: {
-      engine: row.engine,
-      power: row.power,
-      consumption: row.consumption,
-      weight: row.weight,
-    },
-    costs: {
-      ipva: row.ipva,
-      insurance: row.insurance,
-      maintenance: row.maintenance,
-    },
-    features: JSON.parse(row.features),
-    images: {
-      main: row.mainImage,
-      thumbnails: JSON.parse(row.thumbnailImages),
-    },
-  };
-}
 
 const carSchema = z.object({
   id: z.string().min(1, "ID é obrigatório"),
@@ -58,8 +33,8 @@ const carSchema = z.object({
 
 router.get("/", requireAdmin, async (_req, res, next) => {
   try {
-    const cars = await prisma.car.findMany();
-    res.json(cars.map(formatCar));
+    const cars = await carService.getAllCars();
+    res.json(cars);
   } catch (err) {
     next(err);
   }
@@ -69,32 +44,18 @@ router.post("/", requireAdmin, async (req, res, next) => {
   try {
     const data = carSchema.parse(req.body);
 
-    const existing = await prisma.car.findUnique({ where: { id: data.id } });
+    const existing = await carService.getCarById(data.id);
     if (existing) {
       throw new AppError(409, "Carro com este ID já existe");
     }
 
-    const car = await prisma.car.create({
-      data: {
-        id: data.id,
-        name: data.name,
-        year: data.year,
-        price: data.price,
-        category: data.category,
-        engine: data.specs.engine,
-        power: data.specs.power,
-        consumption: data.specs.consumption,
-        weight: data.specs.weight,
-        ipva: data.costs.ipva,
-        insurance: data.costs.insurance,
-        maintenance: data.costs.maintenance,
-        features: JSON.stringify(data.features),
-        mainImage: data.images.main,
-        thumbnailImages: JSON.stringify(data.images.thumbnails),
-      },
-    });
+    const car = await carService.createCar(data);
 
-    res.status(201).json(formatCar(car));
+    if (!car) {
+      throw new AppError(500, "Erro ao criar carro");
+    }
+
+    res.status(201).json(car);
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.issues[0].message });
@@ -106,34 +67,20 @@ router.post("/", requireAdmin, async (req, res, next) => {
 
 router.put("/:id", requireAdmin, async (req, res, next) => {
   try {
-    const existing = await prisma.car.findUnique({ where: { id: String(req.params.id) } });
+    const existing = await carService.getCarById(String(req.params.id));
     if (!existing) {
       throw new AppError(404, "Carro não encontrado");
     }
 
     const data = carSchema.omit({ id: true }).parse(req.body);
 
-    const car = await prisma.car.update({
-      where: { id: String(req.params.id) },
-      data: {
-        name: data.name,
-        year: data.year,
-        price: data.price,
-        category: data.category,
-        engine: data.specs.engine,
-        power: data.specs.power,
-        consumption: data.specs.consumption,
-        weight: data.specs.weight,
-        ipva: data.costs.ipva,
-        insurance: data.costs.insurance,
-        maintenance: data.costs.maintenance,
-        features: JSON.stringify(data.features),
-        mainImage: data.images.main,
-        thumbnailImages: JSON.stringify(data.images.thumbnails),
-      },
-    });
+    const car = await carService.updateCar(String(req.params.id), data);
 
-    res.json(formatCar(car));
+    if (!car) {
+      throw new AppError(500, "Erro ao atualizar carro");
+    }
+
+    res.json(car);
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.issues[0].message });
@@ -145,13 +92,17 @@ router.put("/:id", requireAdmin, async (req, res, next) => {
 
 router.delete("/:id", requireAdmin, async (req, res, next) => {
   try {
-    const existing = await prisma.car.findUnique({ where: { id: String(req.params.id) } });
+    const existing = await carService.getCarById(String(req.params.id));
     if (!existing) {
       throw new AppError(404, "Carro não encontrado");
     }
 
-    await prisma.savedMatch.deleteMany({ where: { carId: String(req.params.id) } });
-    await prisma.car.delete({ where: { id: String(req.params.id) } });
+    await matchService.deleteMatchesByCarId(String(req.params.id));
+    const deleted = await carService.deleteCar(String(req.params.id));
+
+    if (!deleted) {
+      throw new AppError(500, "Erro ao deletar carro");
+    }
 
     res.status(204).send();
   } catch (err) {
