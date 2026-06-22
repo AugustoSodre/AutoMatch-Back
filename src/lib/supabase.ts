@@ -30,9 +30,17 @@ if (supabaseServiceKey) {
 }
 
 export function createAuthClient(token: string): SupabaseClient {
-  const client = createClient(supabaseUrl, supabaseAnonKey);
-  client.auth.setSession({ access_token: token, refresh_token: "" });
-  return client;
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
 }
 
 export function getAuthClientFromRequest(req: Request): SupabaseClient | null {
