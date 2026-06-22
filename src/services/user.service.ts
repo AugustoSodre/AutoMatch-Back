@@ -12,8 +12,9 @@ export async function getProfileByEmail(email: string): Promise<ProfileRow | nul
   return data as unknown as ProfileRow;
 }
 
-export async function getProfileById(id: string): Promise<ProfileRow | null> {
-  const { data, error } = await supabaseAdmin
+export async function getProfileById(id: string, client?: SupabaseClient): Promise<ProfileRow | null> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("profiles")
     .select("*")
     .eq("id", id)
@@ -26,8 +27,9 @@ export async function getProfileById(id: string): Promise<ProfileRow | null> {
   return data as unknown as ProfileRow;
 }
 
-export async function getAllUsers(): Promise<ProfileRow[]> {
-  const { data, error } = await supabaseAdmin
+export async function getAllUsers(client?: SupabaseClient): Promise<ProfileRow[]> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("profiles")
     .select("*")
     .order("created_at", { ascending: false });

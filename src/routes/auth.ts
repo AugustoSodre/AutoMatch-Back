@@ -109,7 +109,7 @@ router.post("/login", async (req, res, next) => {
 
     const user = authData.session.user;
 
-    const { data: profile } = await supabaseAdmin
+    const { data: profile } = await supabaseAnon
       .from("profiles")
       .select("*")
       .eq("id", user.id)
@@ -185,13 +185,13 @@ router.put("/me", requireAuth, async (req: AuthRequest, res, next) => {
       }
     }
 
-    const { data: profile } = await supabaseAdmin
+    const { data: profile } = await authClient
       .from("profiles")
       .select("*")
       .eq("id", req.userId)
       .single();
 
-    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(req.userId);
+    const { data: { user } } = await authClient.auth.getUser();
 
     const userData = formatUser(
       user || { id: req.userId, email: data.email },
@@ -226,13 +226,13 @@ router.put("/me/avatar", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(500, "Erro ao atualizar avatar");
     }
 
-    const { data: profile } = await supabaseAdmin
+    const { data: profile } = await authClient
       .from("profiles")
       .select("*")
       .eq("id", req.userId)
       .single();
 
-    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(req.userId);
+    const { data: { user } } = await authClient.auth.getUser();
 
     const userData = formatUser(
       user || { id: req.userId },

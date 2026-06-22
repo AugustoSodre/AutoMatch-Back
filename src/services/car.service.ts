@@ -27,8 +27,9 @@ function formatCar(row: CarRow): CarFormatted {
   };
 }
 
-export async function getAllCars(): Promise<CarFormatted[]> {
-  const { data, error } = await supabaseAdmin
+export async function getAllCars(client?: SupabaseClient): Promise<CarFormatted[]> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("cars")
     .select("*")
     .order("name");
@@ -41,8 +42,9 @@ export async function getAllCars(): Promise<CarFormatted[]> {
   return ((data as unknown as CarRow[]) || []).map(formatCar);
 }
 
-export async function getCarById(id: string): Promise<CarFormatted | null> {
-  const { data, error } = await supabaseAdmin
+export async function getCarById(id: string, client?: SupabaseClient): Promise<CarFormatted | null> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("cars")
     .select("*")
     .eq("id", id)
@@ -56,8 +58,9 @@ export async function getCarById(id: string): Promise<CarFormatted | null> {
   return formatCar(data as unknown as CarRow);
 }
 
-export async function getCarRowById(id: string): Promise<CarRow | null> {
-  const { data, error } = await supabaseAdmin
+export async function getCarRowById(id: string, client?: SupabaseClient): Promise<CarRow | null> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("cars")
     .select("*")
     .eq("id", id)
@@ -154,8 +157,9 @@ export async function deleteCar(id: string, client?: SupabaseClient): Promise<bo
   return true;
 }
 
-export async function getAllCarsRaw(): Promise<CarRow[]> {
-  const { data, error } = await supabaseAdmin
+export async function getAllCarsRaw(client?: SupabaseClient): Promise<CarRow[]> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("cars")
     .select("*")
     .order("name");

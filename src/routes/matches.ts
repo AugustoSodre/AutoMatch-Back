@@ -35,19 +35,21 @@ const recommendationsSchema = z.object({
 
 router.get("/", requireAuth, async (req: AuthRequest, res, next) => {
   try {
-    const matches = await matchService.getUserMatches(req.userId!);
+    const authClient = getAuthClientFromRequest(req);
+    const matches = await matchService.getUserMatches(req.userId!, authClient || undefined);
     res.json(matches);
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next) => {
+router.post("/recommendations", async (req: AuthRequest, res, next) => {
   try {
     const userProfile = recommendationsSchema.parse(req.body);
-    const userId = req.userId!;
+    const userId = req.userId;
+    const authClient = getAuthClientFromRequest(req);
 
-    const cars = await carService.getAllCarsRaw();
+    const cars = await carService.getAllCarsRaw(authClient || undefined);
 
     const formattedCars = cars.map(car => ({
       id: car.id,
@@ -82,7 +84,7 @@ router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next)
 
     const enrichedMatches: Awaited<ReturnType<typeof matchService.upsertMatch>>[] = [];
 
-    if (aiResults.matches && aiResults.matches.length > 0) {
+    if (userId && aiResults.matches && aiResults.matches.length > 0) {
       const topMatches = aiResults.matches.slice(0, 1);
 
       const authClient = getAuthClientFromRequest(req);
@@ -120,20 +122,20 @@ router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next)
 router.post("/", requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const data = createMatchSchema.parse(req.body);
+    const authClient = getAuthClientFromRequest(req);
 
-    const car = await carService.getCarById(data.carId);
+    const car = await carService.getCarById(data.carId, authClient || undefined);
 
     if (!car) {
       throw new AppError(404, "Carro não encontrado");
     }
 
-    const existing = await matchService.getMatchByUserAndCar(req.userId!, data.carId);
+    const existing = await matchService.getMatchByUserAndCar(req.userId!, data.carId, authClient || undefined);
 
     if (existing) {
       throw new AppError(409, "Match já salvo");
     }
 
-    const authClient = getAuthClientFromRequest(req);
     const match = await matchService.createMatch(
       req.userId!,
       data.carId,
@@ -158,15 +160,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res, next) => {
 router.delete("/:id", requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const matchId = String(req.params.id);
+    const authClient = getAuthClientFromRequest(req);
 
-    const matches = await matchService.getUserMatches(req.userId!);
+    const matches = await matchService.getUserMatches(req.userId!, authClient || undefined);
     const match = matches.find(m => m.id === matchId);
 
     if (!match) {
       throw new AppError(404, "Match não encontrado");
     }
 
-    const authClient = getAuthClientFromRequest(req);
     const deleted = await matchService.deleteMatch(matchId, authClient || undefined);
 
     if (!deleted) {

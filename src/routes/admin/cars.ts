@@ -32,9 +32,10 @@ const carSchema = z.object({
   }),
 });
 
-router.get("/", requireAdmin, async (_req, res, next) => {
+router.get("/", requireAdmin, async (req, res, next) => {
   try {
-    const cars = await carService.getAllCars();
+    const authClient = getAuthClientFromRequest(req);
+    const cars = await carService.getAllCars(authClient || undefined);
     res.json(cars);
   } catch (err) {
     next(err);

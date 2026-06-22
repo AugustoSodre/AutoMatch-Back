@@ -32,8 +32,9 @@ function formatMatch(row: SavedMatchRow & { car: CarRow }): MatchFormatted {
   };
 }
 
-export async function getUserMatches(userId: string): Promise<MatchFormatted[]> {
-  const { data, error } = await supabaseAdmin
+export async function getUserMatches(userId: string, client?: SupabaseClient): Promise<MatchFormatted[]> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("saved_matches")
     .select("*, car:cars(*)")
     .eq("user_id", userId)
@@ -105,9 +106,11 @@ export async function createMatch(
 
 export async function getMatchByUserAndCar(
   userId: string,
-  carId: string
+  carId: string,
+  client?: SupabaseClient
 ): Promise<(SavedMatchRow & { car: CarRow }) | null> {
-  const { data, error } = await supabaseAdmin
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("saved_matches")
     .select("*, car:cars(*)")
     .eq("user_id", userId)

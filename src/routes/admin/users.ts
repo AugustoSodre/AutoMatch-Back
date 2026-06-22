@@ -7,9 +7,10 @@ import { getAuthClientFromRequest } from "../../lib/supabase.js";
 
 const router = Router();
 
-router.get("/", requireAdmin, async (_req, res, next) => {
+router.get("/", requireAdmin, async (req, res, next) => {
   try {
-    const users = await userService.getAllUsers();
+    const authClient = getAuthClientFromRequest(req);
+    const users = await userService.getAllUsers(authClient || undefined);
     const mapped = users.map(u => ({
       id: u.id,
       firstName: u.first_name,
