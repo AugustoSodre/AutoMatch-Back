@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { Request } from "express";
 
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
@@ -34,5 +35,13 @@ export function createAuthClient(token: string): SupabaseClient {
   return client;
 }
 
+export function getAuthClientFromRequest(req: Request): SupabaseClient | null {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return null;
+  const token = header.slice(7);
+  return createAuthClient(token);
+}
+
 export default supabaseAdmin;
 export { supabaseAnon };
+export type { SupabaseClient };

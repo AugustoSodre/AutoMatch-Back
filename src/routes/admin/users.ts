@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as userService from "../../services/user.service.js";
 import { requireAdmin, AuthRequest } from "../../middleware/auth.js";
 import { AppError } from "../../middleware/error.js";
+import { getAuthClientFromRequest } from "../../lib/supabase.js";
 
 const router = Router();
 
@@ -43,7 +44,8 @@ router.put("/:id/role", requireAdmin, async (req: AuthRequest, res, next) => {
       throw new AppError(404, "Usuário não encontrado");
     }
 
-    const updated = await userService.updateUserRole(targetId, role);
+    const authClient = getAuthClientFromRequest(req);
+    const updated = await userService.updateUserRole(targetId, role, authClient || undefined);
     if (!updated) {
       throw new AppError(500, "Erro ao atualizar role");
     }

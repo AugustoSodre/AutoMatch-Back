@@ -4,6 +4,7 @@ import * as matchService from "../services/match.service.js";
 import * as carService from "../services/car.service.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { AppError } from "../middleware/error.js";
+import { getAuthClientFromRequest } from "../lib/supabase.js";
 
 const router = Router();
 
@@ -84,12 +85,14 @@ router.post("/recommendations", requireAuth, async (req: AuthRequest, res, next)
     if (aiResults.matches && aiResults.matches.length > 0) {
       const topMatches = aiResults.matches.slice(0, 1);
 
+      const authClient = getAuthClientFromRequest(req);
       for (const aiMatch of topMatches) {
         try {
           const matchRecord = await matchService.upsertMatch(
             userId,
             aiMatch.id,
-            Math.max(0, Math.round(aiMatch.match_score * 100))
+            Math.max(0, Math.round(aiMatch.match_score * 100)),
+            authClient || undefined
           );
 
           if (matchRecord) {
@@ -130,10 +133,12 @@ router.post("/", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(409, "Match já salvo");
     }
 
+    const authClient = getAuthClientFromRequest(req);
     const match = await matchService.createMatch(
       req.userId!,
       data.carId,
-      data.matchPercentage
+      data.matchPercentage,
+      authClient || undefined
     );
 
     if (!match) {
@@ -161,7 +166,8 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(404, "Match não encontrado");
     }
 
-    const deleted = await matchService.deleteMatch(matchId);
+    const authClient = getAuthClientFromRequest(req);
+    const deleted = await matchService.deleteMatch(matchId, authClient || undefined);
 
     if (!deleted) {
       throw new AppError(500, "Erro ao deletar match");

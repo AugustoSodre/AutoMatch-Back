@@ -1,4 +1,4 @@
-import supabaseAdmin from "../lib/supabase.js";
+import supabaseAdmin, { SupabaseClient } from "../lib/supabase.js";
 import { CarRow, MatchFormatted, SavedMatchRow } from "../types/index.js";
 
 function formatMatch(row: SavedMatchRow & { car: CarRow }): MatchFormatted {
@@ -21,10 +21,10 @@ function formatMatch(row: SavedMatchRow & { car: CarRow }): MatchFormatted {
         insurance: row.car.insurance,
         maintenance: row.car.maintenance,
       },
-      features: typeof row.car.features === "string" ? JSON.parse(row.car.features) : row.car.features,
+      features: row.car.features || [],
       images: {
         main: row.car.main_image,
-        thumbnails: typeof row.car.thumbnail_images === "string" ? JSON.parse(row.car.thumbnail_images) : row.car.thumbnail_images,
+        thumbnails: row.car.thumbnail_images || [],
       },
     },
     savedAt: row.saved_at,
@@ -50,9 +50,11 @@ export async function getUserMatches(userId: string): Promise<MatchFormatted[]> 
 export async function upsertMatch(
   userId: string,
   carId: string,
-  matchPercentage: number
+  matchPercentage: number,
+  client?: SupabaseClient
 ): Promise<MatchFormatted | null> {
-  const { data, error } = await supabaseAdmin
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("saved_matches")
     .upsert(
       {
@@ -79,9 +81,11 @@ export async function upsertMatch(
 export async function createMatch(
   userId: string,
   carId: string,
-  matchPercentage: number
+  matchPercentage: number,
+  client?: SupabaseClient
 ): Promise<MatchFormatted | null> {
-  const { data, error } = await supabaseAdmin
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("saved_matches")
     .insert({
       user_id: userId,
@@ -114,8 +118,9 @@ export async function getMatchByUserAndCar(
   return data as unknown as (SavedMatchRow & { car: CarRow }) | null;
 }
 
-export async function deleteMatch(matchId: string): Promise<boolean> {
-  const { error } = await supabaseAdmin
+export async function deleteMatch(matchId: string, client?: SupabaseClient): Promise<boolean> {
+  const db = client || supabaseAdmin;
+  const { error } = await db
     .from("saved_matches")
     .delete()
     .eq("id", matchId);
@@ -128,8 +133,9 @@ export async function deleteMatch(matchId: string): Promise<boolean> {
   return true;
 }
 
-export async function deleteMatchesByCarId(carId: string): Promise<boolean> {
-  const { error } = await supabaseAdmin
+export async function deleteMatchesByCarId(carId: string, client?: SupabaseClient): Promise<boolean> {
+  const db = client || supabaseAdmin;
+  const { error } = await db
     .from("saved_matches")
     .delete()
     .eq("car_id", carId);

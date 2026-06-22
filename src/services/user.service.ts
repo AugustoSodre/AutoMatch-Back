@@ -1,4 +1,4 @@
-import supabaseAdmin from "../lib/supabase.js";
+import supabaseAdmin, { SupabaseClient } from "../lib/supabase.js";
 import { ProfileRow } from "../types/index.js";
 
 export async function getProfileByEmail(email: string): Promise<ProfileRow | null> {
@@ -39,8 +39,9 @@ export async function getAllUsers(): Promise<ProfileRow[]> {
   return (data as unknown as ProfileRow[]) || [];
 }
 
-export async function updateProfile(id: string, updates: Partial<ProfileRow>): Promise<ProfileRow | null> {
-  const { data, error } = await supabaseAdmin
+export async function updateProfile(id: string, updates: Partial<ProfileRow>, client?: SupabaseClient): Promise<ProfileRow | null> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("profiles")
     .update(updates)
     .eq("id", id)
@@ -54,6 +55,6 @@ export async function updateProfile(id: string, updates: Partial<ProfileRow>): P
   return data as unknown as ProfileRow;
 }
 
-export async function updateUserRole(id: string, role: "USER" | "ADMIN"): Promise<ProfileRow | null> {
-  return updateProfile(id, { role } as Partial<ProfileRow>);
+export async function updateUserRole(id: string, role: "USER" | "ADMIN", client?: SupabaseClient): Promise<ProfileRow | null> {
+  return updateProfile(id, { role } as Partial<ProfileRow>, client);
 }

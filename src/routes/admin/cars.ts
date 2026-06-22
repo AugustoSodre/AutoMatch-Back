@@ -4,6 +4,7 @@ import * as carService from "../../services/car.service.js";
 import * as matchService from "../../services/match.service.js";
 import { requireAdmin, AuthRequest } from "../../middleware/auth.js";
 import { AppError } from "../../middleware/error.js";
+import { getAuthClientFromRequest } from "../../lib/supabase.js";
 
 const router = Router();
 
@@ -49,7 +50,8 @@ router.post("/", requireAdmin, async (req, res, next) => {
       throw new AppError(409, "Carro com este ID já existe");
     }
 
-    const car = await carService.createCar(data);
+    const authClient = getAuthClientFromRequest(req);
+    const car = await carService.createCar(data, authClient || undefined);
 
     if (!car) {
       throw new AppError(500, "Erro ao criar carro");
@@ -74,7 +76,8 @@ router.put("/:id", requireAdmin, async (req, res, next) => {
 
     const data = carSchema.omit({ id: true }).parse(req.body);
 
-    const car = await carService.updateCar(String(req.params.id), data);
+    const authClient = getAuthClientFromRequest(req);
+    const car = await carService.updateCar(String(req.params.id), data, authClient || undefined);
 
     if (!car) {
       throw new AppError(500, "Erro ao atualizar carro");
@@ -97,8 +100,9 @@ router.delete("/:id", requireAdmin, async (req, res, next) => {
       throw new AppError(404, "Carro não encontrado");
     }
 
-    await matchService.deleteMatchesByCarId(String(req.params.id));
-    const deleted = await carService.deleteCar(String(req.params.id));
+    const authClient = getAuthClientFromRequest(req);
+    await matchService.deleteMatchesByCarId(String(req.params.id), authClient || undefined);
+    const deleted = await carService.deleteCar(String(req.params.id), authClient || undefined);
 
     if (!deleted) {
       throw new AppError(500, "Erro ao deletar carro");

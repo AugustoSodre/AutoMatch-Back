@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import supabaseAdmin, { supabaseAnon } from "../lib/supabase.js";
+import supabaseAdmin, { supabaseAnon, getAuthClientFromRequest } from "../lib/supabase.js";
 import { AppError } from "../middleware/error.js";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 
@@ -152,7 +152,8 @@ router.put("/me", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(409, "Email já cadastrado");
     }
 
-    const { error: updateError } = await supabaseAdmin
+    const authClient = getAuthClientFromRequest(req) || supabaseAdmin;
+    const { error: updateError } = await authClient
       .from("profiles")
       .update({
         first_name: data.firstName,
@@ -215,7 +216,8 @@ router.put("/me/avatar", requireAuth, async (req: AuthRequest, res, next) => {
       throw new AppError(401, "Token inválido ou expirado");
     }
 
-    const { error: updateError } = await supabaseAdmin
+    const authClient = getAuthClientFromRequest(req) || supabaseAdmin;
+    const { error: updateError } = await authClient
       .from("profiles")
       .update({ avatar_url: data.avatarUrl })
       .eq("id", req.userId);

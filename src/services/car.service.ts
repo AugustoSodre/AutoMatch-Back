@@ -1,4 +1,4 @@
-import supabaseAdmin from "../lib/supabase.js";
+import supabaseAdmin, { SupabaseClient } from "../lib/supabase.js";
 import { CarRow, CarFormatted } from "../types/index.js";
 
 function formatCar(row: CarRow): CarFormatted {
@@ -67,8 +67,9 @@ export async function getCarRowById(id: string): Promise<CarRow | null> {
   return data as unknown as CarRow;
 }
 
-export async function createCar(car: CarFormatted & { id: string }): Promise<CarFormatted | null> {
-  const { data, error } = await supabaseAdmin
+export async function createCar(car: CarFormatted & { id: string }, client?: SupabaseClient): Promise<CarFormatted | null> {
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("cars")
     .insert({
       id: car.id,
@@ -98,7 +99,7 @@ export async function createCar(car: CarFormatted & { id: string }): Promise<Car
   return formatCar(data as unknown as CarRow);
 }
 
-export async function updateCar(id: string, car: Partial<CarFormatted>): Promise<CarFormatted | null> {
+export async function updateCar(id: string, car: Partial<CarFormatted>, client?: SupabaseClient): Promise<CarFormatted | null> {
   const updateData: Record<string, unknown> = {};
 
   if (car.name !== undefined) updateData.name = car.name;
@@ -122,7 +123,8 @@ export async function updateCar(id: string, car: Partial<CarFormatted>): Promise
     if (car.images.thumbnails !== undefined) updateData.thumbnail_images = JSON.stringify(car.images.thumbnails);
   }
 
-  const { data, error } = await supabaseAdmin
+  const db = client || supabaseAdmin;
+  const { data, error } = await db
     .from("cars")
     .update(updateData)
     .eq("id", id)
@@ -137,8 +139,9 @@ export async function updateCar(id: string, car: Partial<CarFormatted>): Promise
   return formatCar(data as unknown as CarRow);
 }
 
-export async function deleteCar(id: string): Promise<boolean> {
-  const { error } = await supabaseAdmin
+export async function deleteCar(id: string, client?: SupabaseClient): Promise<boolean> {
+  const db = client || supabaseAdmin;
+  const { error } = await db
     .from("cars")
     .delete()
     .eq("id", id);
